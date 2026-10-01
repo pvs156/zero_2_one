@@ -1,0 +1,7 @@
+[
+  {"question": "How long is the return window?", "status": "answered", "source": "Returns policy"},
+  {"question": "Can final-sale items be returned?", "status": "answered", "source": "Returns policy"},
+  {"question": "When do customers receive a tracking link?", "status": "answered", "source": "Shipping policy"},
+  {"question": "How can customers request account deletion?", "status": "answered", "source": "Privacy policy"},
+  {"question": "What is the lunar shuttle ticket price?", "status": "abstained", "source": null}
+]

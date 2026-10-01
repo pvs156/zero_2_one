@@ -1,115 +1,91 @@
-> [!NOTE]
-> This repository is an imported snapshot of [LangChain Deep Agents](https://github.com/langchain-ai/deepagents) at upstream commit [`6bae886`](https://github.com/langchain-ai/deepagents/commit/6bae88610c035b923f538beb99c1dc70850225e1). Deep Agents is developed by LangChain and contributors. See the [MIT license](LICENSE), and use the upstream repository for releases, documentation, and issues.
+# GroundedGate
 
-<div align="center">
-  <a href="https://docs.langchain.com/oss/python/deepagents/overview#deep-agents-overview">
-    <picture>
-      <source media="(prefers-color-scheme: dark)" srcset=".github/images/logo-dark.svg">
-      <source media="(prefers-color-scheme: light)" srcset=".github/images/logo-light.svg">
-      <img alt="Deep Agents Logo" src=".github/images/logo-dark.svg" width="50%">
-    </picture>
-  </a>
-</div>
+**Evidence-grounded answers with visible, deterministic validation gates.**
 
-<div align="center">
-  <h3>The batteries-included agent harness.</h3>
-</div>
+GroundedGate is a small agent application built around one rule: an answer is released only when its cited quotes match retrieved source passages. It includes a FastAPI service, a Next.js interface, an optional Claude generator, and a credential-free evaluation suite. The bundled documents describe a fictional store so the demo can run without private data.
 
-<div align="center">
-  <a href="https://opensource.org/licenses/MIT" target="_blank"><img src="https://img.shields.io/pypi/l/deepagents" alt="PyPI - License"></a>
-  <a href="https://pypistats.org/packages/deepagents" target="_blank"><img src="https://img.shields.io/pepy/dt/deepagents" alt="PyPI - Downloads"></a>
-  <a href="https://pypi.org/project/deepagents/#history" target="_blank"><img src="https://img.shields.io/pypi/v/deepagents?label=%20" alt="Version"></a>
-  <a href="https://x.com/langchain_oss" target="_blank"><img src="https://img.shields.io/twitter/url/https/twitter.com/langchain_oss.svg?style=social&label=Follow%20%40LangChain" alt="Twitter / X"></a>
-</div>
+## What it does
 
-<br>
+1. Screens the question for credential-like strings.
+2. Loads a bounded local Markdown corpus and excludes passages with common instruction-like or credential-like text.
+3. Retrieves up to four passages with deterministic BM25 ranking.
+4. Drafts claims either with the Anthropic SDK or a clearly labeled offline extractive generator.
+5. Checks every claim's source ID and exact quote, then publishes a validation receipt or blocks the draft.
 
-Deep Agents is an open source agent harness — an opinionated agent that runs out of the box. Extend, override, or replace any piece.
+```mermaid
+flowchart LR
+    Q[Question] --> I[Input gate]
+    I --> S[Source filter]
+    S --> R[Bounded retrieval]
+    R --> G[Candidate generator]
+    G --> V[Schema, citation and secret gates]
+    V -->|pass| A[Answer with sources]
+    V -->|fail| B[Blocked result]
+    R -->|no evidence| C[Abstention]
+```
 
-**Principles:**
+## Run locally
 
-- **Opinionated** — defaults tuned for long-horizon, multi-step work
-- **Extensible** — override or replace any piece without forking
-- **Model-agnostic** — works with any LLM that supports tool calling: frontier, open-weight, or local
-- **Production-ready** — built on LangGraph (streaming, persistence, checkpointing) with first-class tracing, evaluation, and deployment via LangSmith
-
-**Features include:**
-
-- **Sub-agents** — delegate tasks to agents with isolated context windows
-- **Filesystem** — read, write, edit, or search over pluggable local, sandboxed, or remote backends
-- **Context management** — summarize long threads and offload tool outputs to disk
-- **Shell access** — run commands in your sandbox of choice
-- **Persistent memory** — pluggable state and store backends for cross-session recall
-- **Human-in-the-loop** — approve, edit, or reject tool calls before they run
-- **Skills** — reusable behaviors the agent can load on demand
-- **Tools** — bring your own functions or any MCP server
-
-Deep Agents is available as a JavaScript/TypeScript library — see [deepagents.js](https://github.com/langchain-ai/deepagentsjs).
-
-> [!NOTE]
-> **Deep Agents Code** — a pre-built coding agent in your terminal, similar to Claude Code or Cursor, powered by any LLM. Install with `curl -LsSf https://langch.in/dcode | bash`. See the [documentation](https://docs.langchain.com/deepagents-code) for the full feature set.
-
-## Quickstart
+Python 3.11+ and Node.js 22+ are recommended.
 
 ```bash
-uv add deepagents
+python -m venv .venv
+# Activate the virtual environment for your shell, then:
+python -m pip install -e ".[dev]"
+uvicorn groundedgate.api:app --reload
 ```
 
-```python
-from deepagents import create_deep_agent
+The API runs at `http://localhost:8000`. In another terminal:
 
-agent = create_deep_agent(
-    model="openai:gpt-6-astra",
-    tools=[my_custom_tool],
-    system_prompt="You are a research assistant.",
-)
-result = agent.invoke({"messages": "Research LangGraph and write a summary"})
+```bash
+cd web
+npm ci
+npm run dev
 ```
 
-The agent can plan, read/write files, and manage its own context. Add your own tools, swap models, customize prompts, configure sub-agents, and more. See the [documentation](https://docs.langchain.com/oss/python/deepagents/overview) for full details.
+Open `http://localhost:3000`. With no credentials configured, the application uses the **offline extractive demo**. To use Claude, set both `ANTHROPIC_API_KEY` and `GROUNDEDGATE_MODEL` in the API process environment. The model identifier is supplied by you; the app does not assume one. `.env.example` lists the settings. Add Markdown files to `data/knowledge/` or point `GROUNDEDGATE_DOCS_DIR` at another local directory, then restart the API.
 
-> [!TIP]
-> For developing, debugging, and deploying AI agents and LLM applications, see [LangSmith](https://docs.langchain.com/langsmith/home).
+Example API request:
 
-## FAQ
+```bash
+curl -X POST http://localhost:8000/ask \
+  -H "Content-Type: application/json" \
+  -d '{"question":"How long is the return window?"}'
+```
 
-### How is this different from LangGraph or LangChain?
+## Quality layers
 
-LangGraph is the graph runtime. LangChain's `create_agent` is a minimal agent harness on top of it. Deep Agents is a more opinionated harness on top of `create_agent` — same building blocks, but with filesystem, sub-agents, context management, and skills bundled in. For how the three relate, see the [LangChain ecosystem overview](https://docs.langchain.com/oss/python/concepts/products).
+| Layer | Enforced rule |
+| --- | --- |
+| Input | Reject common API key and private key patterns before a model call. |
+| Source | Read only local Markdown files; cap file count, file size, and passage count; skip symlinks. |
+| Retrieval | Exclude passages matching common embedded instruction or credential patterns; return at most four positive BM25 matches. |
+| Generation | Make at most one model call with a token limit and timeout; never execute retrieved text as instructions. |
+| Output | Require a strict claim schema, retrieved source IDs, exact quotes, unique claims, and no credential-like strings. |
+| Release | Show the answer only if all output gates pass; otherwise block or abstain with a receipt. |
 
-### Does this work with open-weight or local models?
+These checks **do not prove that a claim is semantically entailed by its quote**. They verify structure, provenance, and exact text matching. The source instruction filter is a narrow heuristic, not comprehensive prompt injection protection. The demo has no external write tools or document upload endpoint. See [quality model](docs/QUALITY_MODEL.md) for threat boundaries and next steps.
 
-Yes. Any model that supports tool calling works — frontier APIs (OpenAI, Anthropic, Google), open-weight models hosted on providers like Baseten or Fireworks, and self-hosted models via Ollama, vLLM, or llama.cpp. Use any [LangChain chat model](https://docs.langchain.com/oss/python/langchain/models).
+## Evaluation
 
-### Can I use this in production?
+```bash
+python -m pytest
+python -m groundedgate.eval
+cd web && npm run build
+```
 
-Yes! Deep Agents is built on LangGraph, designed for production agent deployments. Pair it with [LangSmith](https://docs.langchain.com/langsmith/home) for tracing, evaluation, and monitoring. See [Going to production](https://docs.langchain.com/oss/python/deepagents/going-to-production) for the full guide.
+The offline suite uses five fixed questions over the fictional corpus and exits nonzero on regression. The current baseline passes **5/5 cases**. It checks expected answer or abstention status, expected source titles, and deterministic gates. The report is **not** a claim of general answer accuracy. Live model quality, semantic faithfulness, latency, and cost still need a larger labeled dataset before production use.
 
-### When should I use Deep Agents vs. LangChain or LangGraph directly?
+## Project layout
 
-All three are layers in the same stack — see the [LangChain ecosystem overview](https://docs.langchain.com/oss/python/concepts/products) for how they relate. Use **Deep Agents** when you want the full harness — planning, context management, delegation — out of the box. Use [**LangChain's `create_agent`**](https://docs.langchain.com/oss/python/langchain/agents) when you want a lighter harness without the bundled middleware. Drop to [**LangGraph**](https://docs.langchain.com/oss/python/langgraph/overview) when the agent loop itself isn't the right shape and you need a custom graph.
+| Path | Purpose |
+| --- | --- |
+| `src/groundedgate/` | Retrieval, generation, validation, and API orchestration |
+| `web/` | Next.js interface and gate receipt display |
+| `data/knowledge/` | Fictional public demo documents |
+| `data/evals.json` | Fixed offline regression cases |
+| `tests/` | Boundary and API behavior tests |
 
-The layers compose: any LangGraph `CompiledStateGraph` can be passed in as a sub-agent to a Deep Agent, so custom orchestration plugs in alongside the harness's defaults.
+## License
 
----
-
-## Resources
-
-- [Examples](examples/) — working agents and patterns
-- [Documentation](https://docs.langchain.com/oss/python/deepagents/overview) — conceptual overviews and guides
-- [LangChain ecosystem overview](https://docs.langchain.com/oss/python/concepts/products) — how Deep Agents, LangChain, LangGraph, and LangSmith fit together
-- [API reference](https://reference.langchain.com/python/deepagents/) — complete reference for all public classes, functions, and types
-- [Discussions](https://forum.langchain.com/c/oss-product-help-lc-and-lg/deep-agents/18) — community forum for technical questions, ideas, and feedback
-- [LangChain Academy](https://academy.langchain.com/) — Comprehensive, free courses on LangChain libraries and products, made by the LangChain team.
-- [Contributing Guide](https://docs.langchain.com/oss/python/contributing/overview) — how to contribute and find good first issues
-- [Code of Conduct](https://github.com/langchain-ai/langchain/?tab=coc-ov-file) — community guidelines and standards
-
----
-
-## Acknowledgements
-
-Inspired by Claude Code: an attempt to identify what makes it general-purpose, and push that further.
-
-## Security
-
-Deep Agents follows a "trust the LLM" model. The agent can do anything its tools allow. Enforce boundaries at the tool/sandbox level, not by expecting the model to self-police. See the [security policy](https://github.com/langchain-ai/deepagents?tab=security-ov-file) for more information.
+MIT. See [LICENSE](LICENSE).
