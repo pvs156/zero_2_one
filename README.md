@@ -86,6 +86,4 @@ The offline suite uses five fixed questions over the fictional corpus and exits 
 | `data/evals.json` | Fixed offline regression cases |
 | `tests/` | Boundary and API behavior tests |
 
-## License
 
-MIT. See [LICENSE](LICENSE).
